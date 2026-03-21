@@ -1,0 +1,68 @@
+name: CMake on Ubuntu
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake autoconf automake libtool curl make g++ unzip
+
+    - name: Install protobuf
+      run: |
+        git clone https://github.com/google/protobuf --depth 1 -b 3.19.x
+        cd protobuf
+        ./autogen.sh
+        ./configure --prefix=/usr
+        make -j$(nproc)
+        sudo make install
+        sudo ldconfig
+        cd ..
+        rm -rf protobuf
+
+    - name: Install tinyxml
+      run: |
+        git clone git://git.code.sf.net/p/tinyxml/git tinyxml
+        cd tinyxml
+        make -j$(nproc)
+        ar cr libtinyxml.a *.o
+        sudo cp libtinyxml.a /usr/lib/
+        sudo mkdir -p /usr/include/tinyxml
+        sudo cp *.h /usr/include/tinyxml
+        cd ..
+        rm -rf tinyxml
+
+    - name: Generate protobuf files
+      run: |
+        cd testcases
+        protoc --cpp_out=. test_tinypb_server.proto
+        cd ..
+
+    - name: Configure CMake
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+
+    - name: Test binaries exist
+      working-directory: ${{github.workspace}}/build
+      run: |
+        test -f bin/test_tinypb_server
+        test -f bin/test_tinypb_server_client
+        test -f bin/test_http_server
+        test -f bin/test_coroutine
+        test -f lib/libtinyrpc.a
+        echo "All binaries built successfully!"
